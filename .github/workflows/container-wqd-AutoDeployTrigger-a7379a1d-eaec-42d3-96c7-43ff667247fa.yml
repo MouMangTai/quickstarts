@@ -1,0 +1,60 @@
+name: Trigger auto deployment for container-wqd
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ master ]
+    paths:
+    - '**'
+    - '.github/workflows/container-wqd-AutoDeployTrigger-a7379a1d-eaec-42d3-96c7-43ff667247fa.yml'
+
+  # Allow mannually trigger 
+  workflow_dispatch:      
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to container registry
+        uses: docker/login-action@v1
+        with:
+          registry: acr93fe4a2c5c844251b.azurecr.io
+          username: ${{ secrets.CONTAINERWQD_REGISTRY_USERNAME }}
+          password: ${{ secrets.CONTAINERWQD_REGISTRY_PASSWORD }}
+
+      - name: Build and push container image to registry
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: acr93fe4a2c5c844251b.azurecr.io/container-wqd:${{ github.sha }}
+          file: ./Dockerfile
+          context: ./
+
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.CONTAINERWQD_AZURE_CREDENTIALS }}
+
+
+      - name: Deploy to containerapp
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az config set extension.use_dynamic_install=yes_without_prompt
+            az containerapp registry set -n container-wqd -g rg-wqd --server acr93fe4a2c5c844251b.azurecr.io --username  ${{ secrets.CONTAINERWQD_REGISTRY_USERNAME }} --password ${{ secrets.CONTAINERWQD_REGISTRY_PASSWORD }}
+            az containerapp update -n container-wqd -g rg-wqd --image acr93fe4a2c5c844251b.azurecr.io/container-wqd:${{ github.sha }}
